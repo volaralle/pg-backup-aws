@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: namespace
+spec:
+  schedule: "30 02 * * *"
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          initContainers:
+            - name: dump
+              image: bitnami/postgresql:11.11.0
+              volumeMounts:
+                - name: data
+                  mountPath: /backup
+              envFrom:
+                - secretRef:
+                    name: pg-backup-aws
+              command: ["/bin/sh"]
+              args: ["-c", 'pg_dump -C -v -F c -p ${POSTGRES_PORT} -d ${POSTGRES_DB} -f ${PG_BACKUP} -U ${POSTGRES_USER} -h ${PGHOST}']
+          containers:
+            - name: save
+              image: amazon/aws-cli:latest
+              volumeMounts:
+                - name: data
+                  mountPath: /backup
+              command: ["/bin/sh"]
+              args: ["-c", 'aws --endpoint-url=https://storage.yandexcloud.net s3 cp ${PG_BACKUP} s3://${BUCKET_NAME}/${BUCKET_DIR}/']
+              envFrom:
+                - secretRef:
+                    name: pg-backup-aws
+          restartPolicy: Never
+          volumes:
+            - name: data
+              emptyDir: {}
